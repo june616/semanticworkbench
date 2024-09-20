@@ -1,16 +1,11 @@
-# Copyright (c) Microsoft. All rights reserved.
-
-# Prospector Assistant
-#
-# This assistant helps you mine ideas from artifacts.
-#
-
 import logging
 import re
+from io import BytesIO
 from typing import Any
 
 import deepmerge
 import tiktoken
+from docx import Document
 from openai.types.chat import ChatCompletionMessageParam
 from semantic_workbench_api_model.workbench_model import (
     ConversationEvent,
@@ -54,6 +49,9 @@ service_description = "An assistant that helps you mine ideas from artifacts."
 # create the configuration provider, using the extended configuration model
 #
 config_provider = BaseModelAssistantConfig(AssistantConfigModel(), ui_schema=ui_schema)
+
+# Create a dictionary to store the resume text for each conversation
+conversation_resumes = {}
 
 
 # define the content safety evaluator factory
@@ -121,6 +119,7 @@ async def on_message_created(
       - @assistant.events.conversation.message.on_created
     """
 
+    """
     # ignore messages from this assistant
     if message.sender.participant_id == context.assistant.id:
         return
@@ -136,6 +135,71 @@ async def on_message_created(
         )
     finally:
         # update the participant status to indicate the assistant is done thinking
+        await context.update_participant_me(UpdateParticipant(status=None))
+    """
+    # ignore messages from this assistant
+    if message.sender.participant_id == context.assistant.id:
+        return
+    try:
+        # update the participant status to indicate the assistant is thinking
+        await context.update_participant_me(UpdateParticipant(status="thinking..."))
+
+        # get the resume text from the conversation context
+        resume_text = conversation_resumes.get(context.id, "")
+
+        if not resume_text:
+            await context.send_messages(
+                NewConversationMessage(
+                    content="Please upload your resume first.",
+                    message_type=MessageType.chat,
+                )
+            )
+            return
+
+        print("=============Resume text====================:", resume_text)
+        print("=============Message content====================:", message.content)
+        # extract the ideal role and years of experience from the message content
+        role_and_experience = message.content.split(",")
+        print("=============Role and experience====================:", role_and_experience)
+
+        if len(role_and_experience) >= 2:
+            ideal_role = ".".join(role_and_experience[:-1])
+            yoe = role_and_experience[-1]
+        else:
+            ideal_role = "an unspecified role"
+            yoe = "an unspecified number of years"
+
+        skills = extract_skills(resume_text, ideal_role)
+        if not skills:
+            skills = ["general skills, as no matching skills were found in the resume."]
+
+        # generate a prompt based on the extracted information
+        prompt = (
+            f"You are an experienced career coach. Your client has {yoe} years of experience and is applying for {ideal_role}. "
+            f"They possess the following skills: {', '.join(skills)}. If the role or years of experience or skills were unspecified, provide general interview guidance."
+            f"Please organize your answer in this format (sub-bullet points should be in bullet points, make sure it is well-structured and organized): "
+            f"1. Common top 5 skills for the role (try to make it tailored to the given role and yoe)."
+            f"2. For each skill, what are the common interview questions?"
+            f"3. How to answer these questions? Any resources or tips?"
+            f"4. Any additional tips for the interview."
+        )
+
+        print("=============Prompt generated====================:", prompt)
+
+        await respond_to_conversation(
+            context,
+            message=ConversationMessage(
+                id=message.id,
+                content=prompt,
+                content_type=message.content_type,
+                sender=message.sender,
+                timestamp=message.timestamp,
+                filenames=message.filenames,
+                metadata=message.metadata,
+            ),
+            metadata={"debug": {"content_safety": event.data.get(assistant.content_interceptor.metadata_key, {})}},
+        )
+    finally:
         await context.update_participant_me(UpdateParticipant(status=None))
 
 
@@ -164,6 +228,7 @@ async def on_file_created(context: ConversationContext, event: ConversationEvent
     """
 
     # update the participant status to indicate the assistant processing the new file
+    """
     await context.update_participant_me(UpdateParticipant(status=f"adding attachment '{file.filename}'..."))
     try:
         # process the file to create an attachment
@@ -174,6 +239,34 @@ async def on_file_created(context: ConversationContext, event: ConversationEvent
         )
     finally:
         # update the participant status to indicate the assistant is done processing the new file
+        await context.update_participant_me(UpdateParticipant(status=None))
+    """
+
+    # update the participant status to indicate the assistant processing the resume
+    await context.update_participant_me(UpdateParticipant(status=f"Processing resume '{file.filename}'..."))
+
+    try:
+        # read the uploaded Word document and extract the text content
+        file_content = BytesIO()
+        async with context.read_file(file.filename) as file_stream:
+            async for chunk in file_stream:
+                file_content.write(chunk)
+        file_content.seek(0)
+
+        resume_text = read_docx(file_content)
+
+        conversation_resumes[context.id] = resume_text
+        print("=============Resume text saved to global cache====================:", resume_text)
+
+        await context.send_messages(
+            NewConversationMessage(
+                content="Resume uploaded successfully! Please enter your ideal role and years of experience (e.g., 'Software Developer, 2 years').",
+                message_type=MessageType.chat,
+            )
+        )
+
+    finally:
+        # update the participant status to indicate the assistant is done processing the resume
         await context.update_participant_me(UpdateParticipant(status=None))
 
 
@@ -523,6 +616,75 @@ async def delete_attachment_for_file(context: ConversationContext, file: File, m
                 metadata={**metadata, "attribution": "system"},
             )
         )
+
+
+def read_docx(docx_file_content) -> str:
+    """
+    Read the uploaded Word document and return the text content.
+    """
+    print("================calling read_docx()====================")
+    document = Document(docx_file_content)
+    full_text = []
+    for para in document.paragraphs:
+        full_text.append(para.text)
+    print("Successfully read the docx file!", "\n".join(full_text))
+    return "\n".join(full_text)
+
+
+def extract_skills(resume_text: str, ideal_role: str) -> list:
+    """
+    Extract key skills from the resume text by matching against a predefined list of skills.
+    In the future: utilize NLP techniques to extract skills from the resume text instead of using predefined skills.
+    """
+    print("================calling extract_skills()====================")
+    predefined_skills = {
+        "Software Developer": [
+            "Python",
+            "C++",
+            "Java",
+            "Git",
+            "Algorithms",
+            "Data Structures",
+            "APIs",
+            "Databases",
+            "Cloud",
+            "Testing",
+        ],
+        "Product Manager": [
+            "Roadmaps",
+            "Stakeholder Management",
+            "Agile",
+            "Scrum",
+            "Market Research",
+            "Product Lifecycle",
+            "KPIs",
+            "User Stories",
+            "Wireframing",
+            "UX",
+        ],
+        "Data Scientist": [
+            "Python",
+            "R",
+            "Data Analysis",
+            "Machine Learning",
+            "Statistics",
+            "Pandas",
+            "NumPy",
+            "Data Visualization",
+            "SQL",
+            "Modeling",
+        ],
+    }
+    resume_tokens = resume_text.split(",")
+    processed_tokens = [token.strip().lower() for token in resume_tokens]
+    role_skills = predefined_skills.get(ideal_role, [])
+    skills_found = []
+    for skill in role_skills:
+        if skill.lower() in processed_tokens:
+            skills_found.append(skill)
+
+    print("Skills found in the resume:", skills_found)
+    return skills_found
 
 
 # endregion
