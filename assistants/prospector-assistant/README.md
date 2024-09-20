@@ -1,3 +1,61 @@
+# Mock Interview AI Assistant: Summary & Workflow
+
+## 1. Workflow Overview
+
+The AI assistant is designed to provide personalized interview guidance based on the user's uploaded resume and specified ideal role. It follows these main steps:
+
+1. **User Uploads Resume**: The user uploads a resume in `.docx` format.
+2. **Resume Processing**: The resume is read and stored as a string, ready for further processing.
+3. **Role and Experience Input**: The user inputs their desired role and years of experience.
+4. **Skill Extraction**: Skills relevant to the desired role are extracted from the resume using a predefined list of common skills.
+5. **Prompt Generation**: A prompt is generated based on the user’s skills, role, and experience.
+6. **OpenAI Response**: The prompt is sent to the OpenAI API for generating interview questions and guidance.
+7. **Response Delivery**: The generated interview guidance is sent back to the user.
+
+## 2. Methods and Their Functions
+
+- **`read_docx(docx_file_content)`:**
+
+  - Reads and extracts text from the uploaded Word document.
+  - Returns the extracted resume text as a single string.
+
+- **`extract_skills(resume_text, ideal_role)`:**
+
+  - Compares the extracted resume text against a predefined list of skills for the specified role.
+  - Returns a list of matching skills found in the resume.
+  - In the future, NLP techniques could replace the predefined list for better accuracy.
+
+- **`respond_to_conversation(context, message, metadata)`:**
+
+  - Builds and sends a prompt to the OpenAI API based on the extracted information.
+  - Returns a generated response containing interview questions and preparation guidance.
+
+- **Event Handlers:**
+
+  - **`on_file_created(context, event, file)`:**
+
+    - Handles the event when a user uploads a resume.
+    - Reads the resume, saves the text to a global dictionary, and prompts the user for their ideal role and experience.
+
+  - **`on_message_created(context, event, message)`:**
+
+    - Handles user input after the resume upload, expecting the ideal role and years of experience.
+    - If valid, it generates a prompt and requests the OpenAI API for interview guidance based on the input.
+
+  - **`on_conversation_created(context)`:**
+    - Sends a welcome message when the assistant is added to a conversation.
+
+## 3. Future Improvements
+
+- **NLP for Skill Extraction**: Implement Natural Language Processing (NLP) to dynamically extract skills from the resume, rather than relying on predefined lists.
+- **Personalized Feedback**: Improve the assistant's ability to provide feedback on the resume and role suitability, offering suggestions to improve the resume.
+- **Multi-role Support**: Allow users to specify multiple roles or hybrid roles, adjusting the skill extraction and prompt generation accordingly.
+- **Integration with Real-Time Job Listings**: Cross-reference the extracted skills with real-time job listings to provide more relevant and updated interview questions and preparation material.
+
+Overall, this AI assistant provides a structured yet flexible framework for users seeking interview guidance tailored to their specific experiences and aspirations. With future enhancements, it can become an even more effective tool for interview preparation.
+
+=======================================================================================
+
 # Using Semantic Workbench with python assistants
 
 This project provides an assistant to help mine artifacts for ideas, leveraging OpenAI or Azure OpenAI (or any OpenAI compatible service), allowing to use **Semantic Workbench** to test it.
